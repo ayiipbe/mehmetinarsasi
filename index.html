@@ -3,49 +3,164 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Mehmet’in Arsası – Güncel Değer</title>
+  <title>Mehmet’in Arsası — Güncel Değer</title>
+
   <style>
-    body{font-family:Arial,sans-serif; background:#111; color:#eee; text-align:center; padding:30px;}
-    .val{font-size:48px; margin:20px 0;}
-    .sub{font-size:16px; color:#aaa;}
-    button{padding:10px 18px; margin:8px;}
+    :root{
+      --bg:#0b0f14; --card:#111826; --card2:#0e1522; --border:#1d2a3d;
+      --text:#e8eef6; --muted:#9aa8c7; --blue:#2b5cff;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
+    body{margin:0;background:var(--bg);color:var(--text)}
+    .wrap{max-width:760px;margin:0 auto;padding:26px 16px}
+    .card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:20px}
+    h1{margin:0 0 8px;font-size:22px}
+    .sub{color:var(--muted);font-size:13px;line-height:1.45}
+    .hero{margin-top:14px;background:var(--card2);border:1px solid var(--border);border-radius:16px;padding:16px}
+    .k{color:var(--muted);font-size:12px}
+    .v{font-size:36px;font-weight:900;margin:6px 0 0}
+    .mini{color:var(--muted);font-size:12px;margin-top:6px;line-height:1.4}
+    .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+    button{cursor:pointer;border:0;border-radius:12px;padding:10px 12px;font-weight:800}
+    .btn{background:var(--blue);color:#fff}
+    .btn2{background:transparent;color:var(--text);border:1px solid var(--border)}
+    code{background:var(--card2);border:1px solid var(--border);padding:2px 6px;border-radius:8px}
   </style>
 </head>
+
 <body>
-  <h1>Mehmet’in Arsası</h1>
-  <div class="sub">468 gram altının güncel TL karşılığı:</div>
-  <div class="val" id="price">Yükleniyor…</div>
-  <div class="sub" id="extra"></div>
-  <button onclick="load()">Yenile</button>
-  <button onclick="share()">WhatsApp’ta Paylaş</button>
+  <div class="wrap">
+    <div class="card">
+      <h1>Mehmet’in arsası: “Bugün kaç para?” 😄</h1>
+      <div class="sub">
+        2018’de “75.000 TL verdim” demek kolay…<br>
+        Biz işi romantizmden çıkarıp <b>468 gram altın</b> üzerinden konuşuyoruz.
+      </div>
+
+      <div class="hero">
+        <div class="k" id="status">Veri çekiliyor…</div>
+        <div class="v" id="value">—</div>
+        <div class="mini" id="detail">—</div>
+      </div>
+
+      <div class="row">
+        <button class="btn" id="share">WhatsApp’ta paylaş</button>
+        <button class="btn2" id="refresh">Yenile</button>
+      </div>
+
+      <div class="mini" id="quip" style="margin-top:10px"></div>
+      <div class="mini" id="debug" style="margin-top:6px"></div>
+    </div>
+  </div>
 
 <script>
-  const URL = "https://finans.truncgil.com/v4/today.json";
-  const GRAM = 468;
+  const GRAM_ADET = 468;
+  const DATA_URL = "./data.json?ts=" + Date.now();
+  const TARGET_NAME = "GRAMALTIN";
 
-  function fmt(n){
-    return n.toLocaleString("tr-TR",{style:"currency",currency:"TRY",maximumFractionDigits:2});
+  const elStatus = document.getElementById("status");
+  const elValue  = document.getElementById("value");
+  const elDetail = document.getElementById("detail");
+  const elQuip   = document.getElementById("quip");
+  const elDebug  = document.getElementById("debug");
+
+  function fmtTRY(n){
+    return n.toLocaleString("tr-TR", { style:"currency", currency:"TRY", maximumFractionDigits:2 });
+  }
+
+  function parseSmart(x){
+    // Kabul: number, "7067.02", "7.067,02"
+    if (typeof x === "number") return x;
+    if (typeof x !== "string") return NaN;
+
+    const s = x.trim();
+
+    // Virgül varsa TR format varsay: 7.067,02 -> 7067.02
+    if (s.includes(",")) {
+      const tr = s.replace(/\./g, "").replace(",", ".");
+      const n = Number(tr);
+      return Number.isFinite(n) ? n : NaN;
+    }
+
+    // Virgül yoksa nokta ondalıktır: 7067.02 -> 7067.02 (NOKTAYI SİLME!)
+    const n = Number(s);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  function normalize(p){
+    // 436000 gibi uçuksa genelde *100 hatasıdır
+    if (!Number.isFinite(p)) return p;
+    if (p > 50000) p = p / 100;
+    if (p > 50000) p = p / 100;
+    return p;
+  }
+
+  function findGramAltin(data){
+    // data.json içinde Name:"GRAMALTIN" olan kaydı bul
+    const upper = TARGET_NAME.toUpperCase();
+    for (const [k, v] of Object.entries(data)) {
+      if (!v || typeof v !== "object") continue;
+      if (String(v.Name || "").toUpperCase() === upper) {
+        return { key: k, item: v };
+      }
+    }
+    // Alternatif: direkt key varsa
+    if (data[TARGET_NAME] && typeof data[TARGET_NAME] === "object") {
+      return { key: TARGET_NAME, item: data[TARGET_NAME] };
+    }
+    return null;
   }
 
   async function load(){
+    elStatus.textContent = "Veri çekiliyor…";
+    elValue.textContent = "—";
+    elDetail.textContent = "—";
+    elQuip.textContent = "";
+    elDebug.textContent = "";
+
     try{
-      const r = await fetch(URL);
+      const r = await fetch(DATA_URL, { cache:"no-store" });
+      if (!r.ok) throw new Error("data.json HTTP " + r.status);
       const d = await r.json();
 
-      const raw = d["gram-altin"] || d["GramAltin"] || d["GRAMALTIN"] || Object.values(d).find(x=>x?.Selling && x?.Buying);
-      const price = Number(String(raw.Selling || raw.Buying).replace(/\./g,'').replace(',','.'));
+      const hit = findGramAltin(d);
+      if (!hit) throw new Error(`Name='${TARGET_NAME}' bulunamadı`);
 
-      document.getElementById("price").innerText = fmt(price * GRAM);
-      document.getElementById("extra").innerText = "1g: " + fmt(price);
+      const { key, item } = hit;
+
+      // Satış daha mantıklı; yoksa Buying
+      let gram = parseSmart(String(item.Selling ?? item.Buying));
+      gram = normalize(gram);
+
+      if (!Number.isFinite(gram)) throw new Error("Fiyat parse edilemedi");
+
+      // ekstra mantık kontrolü: gram altın birkaç bin TL bandında olmalı
+      if (gram < 500 || gram > 50000) throw new Error("Fiyat mantık dışı: " + gram);
+
+      const toplam = gram * GRAM_ADET;
+
+      elStatus.textContent = "Arsanın güncel değeri (468 g altın)";
+      elValue.textContent  = fmtTRY(toplam);
+
+      const upd = d.Update_Date ? `Güncelleme: ${d.Update_Date}` : "";
+      const change = (item.Change != null) ? ` • Değişim: ${item.Change}%` : "";
+      elDetail.textContent = `1 g = ${fmtTRY(gram)}${change}${upd ? " • " + upd : ""}`;
+
+      elQuip.textContent = "Kısacası: “75 bin TL” güzel hikâye… ama bugün altın konuşuyor 🙂";
+      elDebug.innerHTML = `Bulunan kayıt: <code>${key}</code> • Raw Selling: <code>${item.Selling}</code> • Raw Buying: <code>${item.Buying}</code>`;
     }catch(e){
-      document.getElementById("price").innerText = "Veri alınamadı";
-      document.getElementById("extra").innerText = "";
+      elStatus.textContent = "Veri alınamadı";
+      elDetail.textContent = String(e?.message || e);
+      elDebug.textContent = "Not: Ctrl+F5 ile cache temizleyip tekrar dene.";
     }
   }
-  function share(){
-    const msg = "Mehmet’in arsası: 468g altın bugün ≈ " + document.getElementById("price").innerText;
+
+  document.getElementById("refresh").addEventListener("click", load);
+
+  document.getElementById("share").addEventListener("click", () => {
+    const msg = "Mehmet’in arsası — 468 gram altın hesabı (güncel):\n" + location.href;
     window.open("https://wa.me/?text=" + encodeURIComponent(msg), "_blank");
-  }
+  });
 
   load();
 </script>
