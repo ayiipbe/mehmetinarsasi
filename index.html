@@ -3,10 +3,14 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Mehmet’in Arsası — Güncel Değer</title>
+  <title>Mehmet’in Arsası – Güncel Değer</title>
+
   <style>
-    :root{--bg:#0b0f14;--card:#111826;--card2:#0e1522;--border:#1d2a3d;--text:#e8eef6;--muted:#9aa8c7;--blue:#2b5cff;
-      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif}
+    :root{
+      --bg:#0b0f14; --card:#111826; --card2:#0e1522; --border:#1d2a3d;
+      --text:#e8eef6; --muted:#9aa8c7; --blue:#2b5cff;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    }
     body{margin:0;background:var(--bg);color:var(--text)}
     .wrap{max-width:760px;margin:0 auto;padding:26px 16px}
     .card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:20px}
@@ -14,7 +18,7 @@
     .sub{color:var(--muted);font-size:13px;line-height:1.45}
     .hero{margin-top:14px;background:var(--card2);border:1px solid var(--border);border-radius:16px;padding:16px}
     .k{color:var(--muted);font-size:12px}
-    .v{font-size:34px;font-weight:900;margin:6px 0 0}
+    .v{font-size:36px;font-weight:900;margin:6px 0 0}
     .mini{color:var(--muted);font-size:12px;margin-top:6px;line-height:1.4}
     .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
     button{cursor:pointer;border:0;border-radius:12px;padding:10px 12px;font-weight:800}
@@ -22,13 +26,14 @@
     .btn2{background:transparent;color:var(--text);border:1px solid var(--border)}
   </style>
 </head>
+
 <body>
   <div class="wrap">
     <div class="card">
       <h1>Mehmet’in arsası: “Bugün kaç para?” 😄</h1>
       <div class="sub">
         2018’de “75.000 TL verdim” demek kolay…<br>
-        Biz işi duygudan çıkarıp <b>468 gram altın</b> üzerinden konuşuyoruz.
+        Biz işi romantizmden çıkarıp <b>468 gram altın</b> üzerinden konuşuyoruz.
       </div>
 
       <div class="hero">
@@ -47,9 +52,9 @@
   </div>
 
 <script>
-  const GRAM = 468;
-  const DATA_URL = "./data.json?ts=" + Date.now(); // cache kır
-  const KEY = "GRAMALTIN"; // senin data.json'da gördüğün anahtar
+  const GRAM_ADET = 468;
+  const DATA_URL = "./data.json?ts=" + Date.now();
+  const TARGET = "GRAMALTIN";
 
   const elStatus = document.getElementById("status");
   const elValue  = document.getElementById("value");
@@ -57,7 +62,43 @@
   const elQuip   = document.getElementById("quip");
 
   function fmtTRY(n){
-    return n.toLocaleString("tr-TR", { style:"currency", currency:"TRY", maximumFractionDigits:2 });
+    return n.toLocaleString("tr-TR", {
+      style:"currency",
+      currency:"TRY",
+      maximumFractionDigits:2
+    });
+  }
+
+  function parseNumberSafe(x){
+    if (typeof x === "number") return x;
+    if (typeof x !== "string") return NaN;
+    // "7.067,02" veya "7067.02"
+    const s = x.includes(",") ? x.replace(/\./g,"").replace(",",".") : x;
+    const n = Number(s);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  function pickGramAltin(data){
+    // 1) Direkt key varsa
+    if (data[TARGET] && (data[TARGET].Selling ?? data[TARGET].Buying) != null) {
+      return data[TARGET];
+    }
+
+    // 2) Type alanına bak
+    for (const v of Object.values(data)) {
+      if (v && typeof v === "object" && String(v.Type || "").toUpperCase() === TARGET) {
+        return v;
+      }
+    }
+
+    // 3) Son çare: key adında GRAM geçen
+    for (const [k,v] of Object.entries(data)) {
+      if (k.toUpperCase().includes("GRAM") && v && typeof v === "object") {
+        return v;
+      }
+    }
+
+    return null;
   }
 
   async function load(){
@@ -66,43 +107,48 @@
     elDetail.textContent = "—";
     elQuip.textContent = "";
 
-    const r = await fetch(DATA_URL, { cache:"no-store" });
-    if (!r.ok) throw new Error("data.json HTTP " + r.status);
+    try{
+      const r = await fetch(DATA_URL, { cache:"no-store" });
+      if (!r.ok) throw new Error("data.json HTTP " + r.status);
+      const d = await r.json();
 
-    const d = await r.json();
+      const item = pickGramAltin(d);
+      if (!item) throw new Error("GRAMALTIN bulunamadı");
 
-    // data.json yapın: { "GRAMALTIN": { Buying: 7067.02, ... }, ... }
-    const obj = d[KEY];
-    if (!obj) throw new Error(`data.json içinde '${KEY}' yok`);
+      const gram =
+        parseNumberSafe(item.Selling ?? item.Buying);
 
-    const gram = Number(obj.Buying ?? obj.Selling);
-    if (!Number.isFinite(gram)) throw new Error("Buying/Selling sayı değil");
+      if (!Number.isFinite(gram))
+        throw new Error("GRAMALTIN fiyatı sayı değil");
 
-    const total = gram * GRAM;
+      const toplam = gram * GRAM_ADET;
 
-    elStatus.textContent = "Arsanın güncel değeri (468 g altın)";
-    elValue.textContent  = fmtTRY(total);
+      elStatus.textContent = "Arsanın güncel değeri (468 g altın)";
+      elValue.textContent  = fmtTRY(toplam);
 
-    const change = (obj.Change !== undefined) ? ` • Değişim: ${obj.Change}%` : "";
-    elDetail.textContent = `1 g = ${fmtTRY(gram)}${change}`;
+      const change = item.Change != null ? ` • Değişim: ${item.Change}%` : "";
+      elDetail.textContent =
+        `1 g = ${fmtTRY(gram)}${change}`;
 
-    elQuip.textContent = "Kısacası: “75 bin TL” güzel hikâye… ama bugün altın konuşuyor 🙂";
+      elQuip.textContent =
+        "Kısacası: “75 bin TL” güzel hikâye… ama bugün altın konuşuyor 🙂";
+
+    }catch(e){
+      elStatus.textContent = "Veri alınamadı";
+      elDetail.textContent = String(e?.message || e);
+    }
   }
 
-  document.getElementById("refresh").addEventListener("click", () => load().catch(e=>{
-    elStatus.textContent="Veri alınamadı.";
-    elDetail.textContent=String(e?.message||e);
-  }));
+  document.getElementById("refresh").addEventListener("click", load);
 
   document.getElementById("share").addEventListener("click", () => {
-    const msg = `Mehmet’in arsası — 468 gram altın hesabı (güncel):\n${location.href}`;
+    const msg =
+      "Mehmet’in arsası — 468 gram altın hesabı (güncel):\n" +
+      location.href;
     window.open("https://wa.me/?text=" + encodeURIComponent(msg), "_blank");
   });
 
-  load().catch(e=>{
-    elStatus.textContent="Veri alınamadı.";
-    elDetail.textContent=String(e?.message||e);
-  });
+  load();
 </script>
 </body>
 </html>
