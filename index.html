@@ -4,7 +4,6 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Mehmet’in Arsası — Güncel Değer</title>
-
   <style>
     :root{
       --bg:#0b0f14; --card:#111826; --card2:#0e1522; --border:#1d2a3d;
@@ -68,47 +67,41 @@
     return n.toLocaleString("tr-TR", { style:"currency", currency:"TRY", maximumFractionDigits:2 });
   }
 
+  // TR format ("7.067,02") ve EN format ("7067.02") ikisini de doğru okur
   function parseSmart(x){
-    // Kabul: number, "7067.02", "7.067,02"
     if (typeof x === "number") return x;
     if (typeof x !== "string") return NaN;
-
     const s = x.trim();
-
-    // Virgül varsa TR format varsay: 7.067,02 -> 7067.02
     if (s.includes(",")) {
       const tr = s.replace(/\./g, "").replace(",", ".");
       const n = Number(tr);
       return Number.isFinite(n) ? n : NaN;
     }
-
-    // Virgül yoksa nokta ondalıktır: 7067.02 -> 7067.02 (NOKTAYI SİLME!)
     const n = Number(s);
     return Number.isFinite(n) ? n : NaN;
   }
 
-  function normalize(p){
-    // 436000 gibi uçuksa genelde *100 hatasıdır
-    if (!Number.isFinite(p)) return p;
-    if (p > 50000) p = p / 100;
-    if (p > 50000) p = p / 100;
-    return p;
-  }
-
-  function findGramAltin(data){
-    // data.json içinde Name:"GRAMALTIN" olan kaydı bul
-    const upper = TARGET_NAME.toUpperCase();
+  function findByName(data, name){
+    const upper = String(name).toUpperCase();
     for (const [k, v] of Object.entries(data)) {
       if (!v || typeof v !== "object") continue;
       if (String(v.Name || "").toUpperCase() === upper) {
         return { key: k, item: v };
       }
     }
-    // Alternatif: direkt key varsa
-    if (data[TARGET_NAME] && typeof data[TARGET_NAME] === "object") {
-      return { key: TARGET_NAME, item: data[TARGET_NAME] };
-    }
     return null;
+  }
+
+  function setUI(gram, meta){
+    const toplam = gram * GRAM_ADET;
+
+    elStatus.textContent = "Arsanın güncel değeri (468 g altın)";
+    elValue.textContent  = fmtTRY(toplam);
+
+    const upd = meta?.update_date_raw || meta?.Update_Date || meta?.updated_at || "";
+    elDetail.textContent = `1 g = ${fmtTRY(gram)}${upd ? " • Güncelleme: " + upd : ""}`;
+
+    elQuip.textContent = "Kısacası: “75 bin TL” güzel hikâye… ama bugün altın konuşuyor 🙂";
   }
 
   async function load(){
@@ -123,40 +116,33 @@
       if (!r.ok) throw new Error("data.json HTTP " + r.status);
       const d = await r.json();
 
-      const hit = findGramAltin(d);
+      // ✅ 1) Yeni format: { gram_try: 4363.68, ... }
+      if (d && d.gram_try != null) {
+        const gram = parseSmart(String(d.gram_try));
+        if (!Number.isFinite(gram)) throw new Error("gram_try sayı değil");
+        setUI(gram, d);
+        elDebug.innerHTML = `Kaynak: <code>data.json (gram_try)</code>`;
+        return;
+      }
+
+      // ✅ 2) Eski format: objeler içinde Name:"GRAMALTIN"
+      const hit = findByName(d, TARGET_NAME);
       if (!hit) throw new Error(`Name='${TARGET_NAME}' bulunamadı`);
 
       const { key, item } = hit;
+      const gram = parseSmart(String(item.Selling ?? item.Buying));
+      if (!Number.isFinite(gram)) throw new Error("GRAMALTIN fiyatı parse edilemedi");
 
-      // Satış daha mantıklı; yoksa Buying
-      let gram = parseSmart(String(item.Selling ?? item.Buying));
-      gram = normalize(gram);
-
-      if (!Number.isFinite(gram)) throw new Error("Fiyat parse edilemedi");
-
-      // ekstra mantık kontrolü: gram altın birkaç bin TL bandında olmalı
-      if (gram < 500 || gram > 50000) throw new Error("Fiyat mantık dışı: " + gram);
-
-      const toplam = gram * GRAM_ADET;
-
-      elStatus.textContent = "Arsanın güncel değeri (468 g altın)";
-      elValue.textContent  = fmtTRY(toplam);
-
-      const upd = d.Update_Date ? `Güncelleme: ${d.Update_Date}` : "";
-      const change = (item.Change != null) ? ` • Değişim: ${item.Change}%` : "";
-      elDetail.textContent = `1 g = ${fmtTRY(gram)}${change}${upd ? " • " + upd : ""}`;
-
-      elQuip.textContent = "Kısacası: “75 bin TL” güzel hikâye… ama bugün altın konuşuyor 🙂";
+      setUI(gram, d);
       elDebug.innerHTML = `Bulunan kayıt: <code>${key}</code> • Raw Selling: <code>${item.Selling}</code> • Raw Buying: <code>${item.Buying}</code>`;
     }catch(e){
       elStatus.textContent = "Veri alınamadı";
       elDetail.textContent = String(e?.message || e);
-      elDebug.textContent = "Not: Ctrl+F5 ile cache temizleyip tekrar dene.";
+      elDebug.textContent = "Ctrl+F5 ile cache temizleyip tekrar dene.";
     }
   }
 
   document.getElementById("refresh").addEventListener("click", load);
-
   document.getElementById("share").addEventListener("click", () => {
     const msg = "Mehmet’in arsası — 468 gram altın hesabı (güncel):\n" + location.href;
     window.open("https://wa.me/?text=" + encodeURIComponent(msg), "_blank");
