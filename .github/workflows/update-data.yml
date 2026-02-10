@@ -25,58 +25,51 @@ jobs:
 
           const raw = JSON.parse(fs.readFileSync("raw.json", "utf8"));
 
-          function parseTRNumber(x) {
-            if (typeof x !== "string") return Number(x);
-            // "6.943,53" -> 6943.53
-            const cleaned = x.replace(/\./g, "").replace(",", ".");
-            const n = Number(cleaned);
-            return Number.isFinite(n) ? n : NaN;
+          function parseSmart(x){
+            if (typeof x === "number") return x;
+            if (typeof x !== "string") return NaN;
+            const s = x.trim();
+            // "7.067,02" -> 7067.02
+            if (s.includes(",")) return Number(s.replace(/\./g,"").replace(",","."));
+            // "7067.02" -> 7067.02
+            return Number(s);
           }
 
-          function normalizeGramPrice(p) {
-            // gram altın TRY mantıklı band (kabaca) 500 - 50000
-            // 436000 gibi ise genelde *100 gelmiştir → /100
-            if (!Number.isFinite(p)) return p;
-            if (p > 50000) p = p / 100;
-            if (p > 50000) p = p / 100; // aşırı uç güvenliği
-            return p;
-          }
-
-          function pickGram(raw) {
-            // 1) direkt anahtar
-            const direct = raw["gram-altin"];
-            if (direct && (direct.Selling || direct.Buying)) {
-              const p = normalizeGramPrice(parseTRNumber(String(direct.Selling || direct.Buying)));
-              if (Number.isFinite(p)) return p;
+          function pickGramAltin(raw){
+            // 1) raw["gram-altin"] gibi direkt anahtar varsa
+            if (raw["gram-altin"] && (raw["gram-altin"].Selling ?? raw["gram-altin"].Buying) != null) {
+              return raw["gram-altin"];
             }
 
-            // 2) içinde "gram" geçen ilk obje
-            const entries = Object.entries(raw).filter(([k, v]) =>
-              v && typeof v === "object" && (("Selling" in v) || ("Buying" in v))
-            );
+            // 2) EN SAĞLAMI: Name === "GRAMALTIN"
+            for (const v of Object.values(raw)) {
+              if (v && typeof v === "object" && String(v.Name || "").toUpperCase() === "GRAMALTIN") {
+                return v;
+              }
+            }
 
-            const hit = entries.find(([k]) => k.toLowerCase().includes("gram")) || entries[0];
-            if (!hit) return NaN;
-
-            const obj = hit[1];
-            const p = normalizeGramPrice(parseTRNumber(String(obj.Selling || obj.Buying)));
-            return p;
+            return null;
           }
 
-          const price = pickGram(raw);
+          const item = pickGramAltin(raw);
 
-          // ekstra kontrol: hâlâ saçmaysa NaN bırak (site açıkça hata yazsın)
-          const sane = Number.isFinite(price) && price > 500 && price < 50000 ? price : null;
+          let gram = null;
+          if (item) {
+            // Satış daha mantıklı; yoksa Buying
+            gram = parseSmart(String(item.Selling ?? item.Buying));
+            if (!Number.isFinite(gram)) gram = null;
+          }
 
           const out = {
             source: "finans.truncgil.com/v4/today.json",
             updated_at: new Date().toISOString(),
             update_date_raw: raw.Update_Date || null,
-            gram_try: sane
+            gram_try: gram
           };
 
           fs.writeFileSync("data.json", JSON.stringify(out, null, 2), "utf8");
           NODE
+
 
       - name: Commit if changed
         run: |
