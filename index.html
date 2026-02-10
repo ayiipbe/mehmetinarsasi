@@ -18,12 +18,11 @@
     .hero{margin-top:14px;background:var(--card2);border:1px solid var(--border);border-radius:16px;padding:16px}
     .k{color:var(--muted);font-size:12px}
     .v{font-size:34px;font-weight:900;margin:6px 0 0}
-    .mini{color:var(--muted);font-size:12px;margin-top:6px}
+    .mini{color:var(--muted);font-size:12px;margin-top:6px;line-height:1.4}
     .row{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
     button{cursor:pointer;border:0;border-radius:12px;padding:10px 12px;font-weight:800}
     .btn{background:var(--blue);color:#fff}
     .btn2{background:transparent;color:var(--text);border:1px solid var(--border)}
-    .foot{margin-top:12px;color:var(--muted);font-size:12px}
     code{background:var(--card2);border:1px solid var(--border);padding:2px 6px;border-radius:8px}
   </style>
 </head>
@@ -34,7 +33,7 @@
       <h1>Mehmet’in arsası: “Bugün kaç para?” 😄</h1>
       <div class="sub">
         2018’de “75.000 TL verdim” demek kolay…<br>
-        Biz işi romantizmden çıkarıp <b>468 gram altın</b> üzerinden konuşuyoruz.
+        Biz işi duygudan çıkarıp <b>468 gram altın</b> hesabına bağlıyoruz.
       </div>
 
       <div class="hero">
@@ -48,76 +47,21 @@
         <button class="btn2" id="refresh">Yenile</button>
       </div>
 
-      <div class="foot" id="debug"></div>
+      <div class="mini" id="debug" style="margin-top:10px"></div>
     </div>
   </div>
 
 <script>
-  // SENİN İSTEDİĞİN: tek değer = 468 gramın TL karşılığı
   const GRAM = 468;
-
-  // CORS'a takılmamak için önce aynı domaindeki data.json'ı deniyoruz:
-  const LOCAL = "./data.json?ts=" + Date.now();
-
-  // Olursa uzaktan da dener (bazı tarayıcılarda çalışır, bazılarında CORS engeller):
-  const REMOTE = "https://finans.truncgil.com/v4/today.json";
+  const DATA_URL = "./data.json?ts=" + Date.now(); // cache kır
 
   const elStatus = document.getElementById("status");
   const elValue  = document.getElementById("value");
   const elDetail = document.getElementById("detail");
   const elDebug  = document.getElementById("debug");
 
-  function parseTRNumber(x){
-    if (typeof x !== "string") return Number(x);
-    const cleaned = x.replace(/\./g,"").replace(",",".");
-    const n = Number(cleaned);
-    return Number.isFinite(n) ? n : NaN;
-  }
-
   function fmtTRY(n){
     return n.toLocaleString("tr-TR", { style:"currency", currency:"TRY", maximumFractionDigits:2 });
-  }
-
-  function pickGramPrice(data){
-    // "gram-altin" varsa direkt al, yoksa içinde "gram" geçen ilk fiyat objesini bul.
-    const direct = data["gram-altin"];
-    if (direct && (direct.Selling || direct.Buying)) {
-      const p = parseTRNumber(String(direct.Selling || direct.Buying));
-      if (Number.isFinite(p)) return { price: p, update: data.Update_Date || "" };
-    }
-
-    const entries = Object.entries(data).filter(([k,v]) =>
-      v && typeof v === "object" && (("Selling" in v) || ("Buying" in v))
-    );
-
-    const hit = entries.find(([k]) => k.toLowerCase().includes("gram")) || entries[0];
-    if (!hit) return null;
-
-    const obj = hit[1];
-    const p = parseTRNumber(String(obj.Selling || obj.Buying));
-    if (!Number.isFinite(p)) return null;
-
-    return { price: p, update: data.Update_Date || "" };
-  }
-
-  async function fetchJson(url){
-    const r = await fetch(url, { cache:"no-store" });
-    if (!r.ok) throw new Error("HTTP " + r.status + " @ " + url);
-    return r.json();
-  }
-
-  function setUI(price, update, sourceLabel){
-    const total = price * GRAM;
-
-    elStatus.textContent = "Arsanın güncel değeri (468 g altın)";
-    elValue.textContent  = fmtTRY(total);
-
-    const upd = update ? ("Güncelleme: " + update) : ("Güncelleme: " + new Date().toLocaleString("tr-TR"));
-    elDetail.textContent = `1 g = ${fmtTRY(price)} • ${upd} • Kaynak: ${sourceLabel}`;
-
-    // Dünkü tadında kısa espri
-    elDebug.textContent =
-      `Kısacası: “75 bin TL” güzel hikâye… ama bugün altın konuşuyor 🙂`;
   }
 
   async function load(){
@@ -126,36 +70,34 @@
     elDetail.textContent = "—";
     elDebug.textContent = "";
 
-    // 1) Local (CORS yok)
     try{
-      const d = await fetchJson(LOCAL);
-      const picked = pickGramPrice(d);
-      if (!picked) throw new Error("data.json içinde uygun fiyat bulunamadı");
-      setUI(picked.price, picked.update, "repo/data.json");
-      return;
-    }catch(e1){
-      // 2) Remote (olursa)
-      try{
-        const d2 = await fetchJson(REMOTE);
-        const picked2 = pickGramPrice(d2);
-        if (!picked2) throw new Error("remote JSON içinde uygun fiyat bulunamadı");
-        setUI(picked2.price, picked2.update, "finans.truncgil.com");
-        return;
-      }catch(e2){
-        elStatus.textContent = "Veri alınamadı.";
-        elDetail.textContent = "Muhtemel sebep: CORS/erişim engeli. Çözüm: repo’ya data.json üreten Actions eklemek.";
-        elDebug.innerHTML =
-          `Şu an <code>data.json</code> yoksa bu normal. İstersen sana tek dosyalık GitHub Actions workflow’u veriyorum (altta).`;
-      }
+      const r = await fetch(DATA_URL, { cache:"no-store" });
+      if (!r.ok) throw new Error("data.json HTTP " + r.status);
+      const d = await r.json();
+
+      if (!d.gram_try) throw new Error("gram_try boş. (Workflow parse/ölçek kontrolü devreye girmiş olabilir.)");
+
+      const gram = Number(d.gram_try);
+      const total = gram * GRAM;
+
+      elStatus.textContent = "Arsanın güncel değeri (468 g altın)";
+      elValue.textContent  = fmtTRY(total);
+
+      const when = d.update_date_raw ? d.update_date_raw : (d.updated_at || "");
+      elDetail.textContent = `1 g = ${fmtTRY(gram)} • Güncelleme: ${when} • Kaynak: ${d.source}`;
+
+      elDebug.textContent = `Kısacası: “75 bin TL” güzel hikâye… ama bugün altın konuşuyor 🙂`;
+    }catch(e){
+      elStatus.textContent = "Veri alınamadı.";
+      elDetail.textContent = "Çözüm: GitHub Actions workflow çalışmalı ve data.json oluşmalı.";
+      elDebug.textContent = String(e && e.message ? e.message : e);
     }
   }
 
   document.getElementById("refresh").addEventListener("click", load);
-
   document.getElementById("share").addEventListener("click", () => {
     const msg =
-      `Mehmet’in arsası — 468 gram altın hesabı (güncel):\n` +
-      `${location.href}`;
+      `Mehmet’in arsası — 468 gram altın hesabı (güncel):\n${location.href}`;
     window.open("https://wa.me/?text=" + encodeURIComponent(msg), "_blank");
   });
 
